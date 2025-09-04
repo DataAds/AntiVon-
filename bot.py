@@ -1,13 +1,14 @@
 import requests
 import time
 import os
+import threading
 from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 LAT, LON = 43.65, 51.15
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# перевод градусов в русские названия ветра
 def deg_to_dir_ru(deg):
     if deg >= 337.5 or deg < 22.5:
         return "Северный"
@@ -39,26 +40,44 @@ def send_message(text):
     data = {"chat_id": CHAT_ID, "text": text}
     requests.post(url, data=data)
 
-last_daily_report = None
-last_wind_check = 0
+def bot_loop():
+    last_daily_report = None
+    last_wind_check = 0
 
-while True:
-    now = datetime.utcnow() + timedelta(hours=3)  # UTC+3 = МСК
-    timestamp = time.time()
+    while True:
+        now = datetime.utcnow() + timedelta(hours=3)  # МСК
+        ts = time.time()
 
-    # ----- 1. Ежедневный отчёт (раз в день, начиная с 17:00) -----
-    if now.hour >= 17:
-        if last_daily_report is None or last_daily_report.date() < now.date():
-            wind_speed, wind_dir = get_weather()
-            message = f"Привет! Я работаю 🚀\nСейчас в Актау ветер {wind_speed} м/с, направление {wind_dir}"
-            send_message(message)
-            last_daily_report = now
+        # Ежедневный отчёт
+        if now.hour >= 17:
+            if last_daily_report is None or last_daily_report.date() < now.date():
+                ws, wd = get_weather()
+                send_message(f"Привет! Я работаю 🚀\nСейчас в Актау ветер {ws} м/с, направление {wd}")
+                last_daily_report = now
 
-    # ----- 2. Алярм: проверка каждые 30 мин -----
-    if timestamp - last_wind_check >= 1800:  # 1800 сек = 30 минут
-        wind_speed, wind_dir = get_weather()
-        if wind_dir in ["Северный", "Северо-Западный"]:
-            send_message(f"Алярм!!! говноветер {wind_dir}, скорость {wind_speed} м/с")
-        last_wind_check = timestamp
+        # Алярм раз в 30 мин
+        if ts - last_wind_check >= 1800:
+            ws, wd = get_weather()
+            if wd in ["Северный", "Северо-Западный"]:
+                send_message(f"Алярм!!! говноветер {wd}, скорость {ws} м/с")
+            last_wind_check = ts
 
-    time.sleep(30)  # чтобы не грузить процессор
+        time.sleep(30)
+
+# 🔹 Минимальный HTTP-сервер, чтобы Render не ругался
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+
+if __name__ == "__main__":
+    # Запускаем бота в отдельном потоке
+    t = threading.Thread(target=bot_loop, daemon=True)
+    t.start()
+
+    # Запускаем HTTP-сервер (Render требует открыть порт)
+    port = int(os.environ.get("PORT", 5000))
+    server = HTTPServer(("", port), Handler)
+    server.serve_forever()
+
