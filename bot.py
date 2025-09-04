@@ -2,16 +2,22 @@ import requests
 import time
 import os
 
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 LAT, LON = 43.65, 51.15
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# перевод градусов в стороны света
+def deg_to_dir(deg):
+    dirs = ['N','NE','E','SE','S','SW','W','NW']
+    ix = round(deg / 45) % 8
+    return dirs[ix]
+
 def get_wind():
-    url = f"https://api.weather.yandex.ru/v2/forecast?lat={LAT}&lon={LON}&extra=true"
-    headers = {"X-Yandex-API-Key": YANDEX_API_KEY}
-    r = requests.get(url, headers=headers).json()
-    return r["fact"]["wind_dir"]
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&current_weather=true"
+    r = requests.get(url).json()
+    wind_deg = r["current_weather"]["winddirection"]
+    wind_dir = deg_to_dir(wind_deg)
+    return wind_dir
 
 def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -20,6 +26,6 @@ def send_message(text):
 
 while True:
     wind = get_wind()
-    if wind == "nw":  # северо-запад
-        send_message(f"⚡ В Актау ветер северо-запад ({wind})")
-    time.sleep(600)  # 10 минут
+    if wind in ["NW", "N"]:  # северо-запад или север
+        send_message(f"⚡ В Актау ветер {wind}")
+    time.sleep(600)  # проверка каждые 10 минут
